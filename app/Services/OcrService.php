@@ -6,9 +6,10 @@ use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+// Service untuk ekstraksi text dari file menggunakan OCR.space API
 class OcrService
 {
-    // Fungsi utama: ekstrak text dari file gambar/pdf dengan OCR.space
+    // Ekstrak text dari file gambar/pdf
     public function extractTextFromImage(UploadedFile $uploadedFile): string
     {
         $apiKey = config('services.ocr_space.key', env('OCR_SPACE_API_KEY'));
@@ -21,12 +22,12 @@ class OcrService
             ->post($apiUrl, [
                 'apikey' => $apiKey,
                 'language' => 'eng',
-                'OCREngine' => '2',
-                'isTable' => 'true',
-                'scale' => 'true',
+                'OCREngine' => '2',     // Engine 2 lebih akurat untuk dokumen
+                'isTable' => 'true',    // Deteksi format tabel
+                'scale' => 'true',      // Scale untuk resolusi rendah
             ]);
 
-        // Cek respon error dari API
+        // Cek error koneksi
         if (!$response->ok()) {
             Log::warning('Gagal komunikasi ke OCR.space', [
                 'status' => $response->status(),
@@ -35,10 +36,9 @@ class OcrService
             throw new \RuntimeException('OCR request failed');
         }
 
-        // Ambil hasil json dari response
         $responseData = $response->json();
 
-        // Cek error dari provider OCR
+        // Cek error dari OCR provider
         if (isset($responseData['IsErroredOnProcessing']) && $responseData['IsErroredOnProcessing']) {
             $detailError = $responseData['ErrorMessage'] ?? $responseData['ErrorDetails'] ?? 'OCR provider error';
             if (is_array($detailError)) {
@@ -52,9 +52,6 @@ class OcrService
             throw new \RuntimeException('OCR response invalid');
         }
 
-        // Return text hasil OCR
         return (string) $responseData['ParsedResults'][0]['ParsedText'];
     }
 }
-
-
