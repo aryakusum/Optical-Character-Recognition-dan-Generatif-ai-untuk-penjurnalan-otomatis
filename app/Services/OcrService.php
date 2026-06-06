@@ -8,14 +8,17 @@ use Illuminate\Support\Facades\Log;
 
 class OcrService
 {
-    // Fungsi utama: ekstrak text dari file gambar/pdf dengan OCR.space
     public function extractTextFromImage(UploadedFile $uploadedFile): string
     {
-        $apiKey = config('services.ocr_space.key', env('OCR_SPACE_API_KEY'));
+        $apiKey = config('services.ocr_space.key');
         $apiUrl = 'https://api.ocr.space/parse/image';
 
-        // Kirim file ke API OCR.space
-        $response = Http::asMultipart()
+        if (!$apiKey) {
+            throw new \RuntimeException('OCR API key tidak dikonfigurasi');
+        }
+
+        $response = Http::retry(3, 2000)
+            ->asMultipart()
             ->timeout(60)
             ->attach('file', file_get_contents($uploadedFile->getRealPath()), $uploadedFile->getClientOriginalName())
             ->post($apiUrl, [
@@ -26,35 +29,22 @@ class OcrService
                 'scale' => 'true',
             ]);
 
-        // Cek respon error dari API
         if (!$response->ok()) {
-            Log::warning('Gagal komunikasi ke OCR.space', [
-                'status' => $response->status(),
-                'body' => $response->body(),
-            ]);
-            throw new \RuntimeException('OCR request failed');
+            Log::warning('OCR API communication error', ['status' => $response->status()]);
+            throw new \RuntimeException('Gagal menghubungi layanan OCR');
         }
 
-        // Ambil hasil json dari response
         $responseData = $response->json();
 
-        // Cek error dari provider OCR
         if (isset($responseData['IsErroredOnProcessing']) && $responseData['IsErroredOnProcessing']) {
-            $detailError = $responseData['ErrorMessage'] ?? $responseData['ErrorDetails'] ?? 'OCR provider error';
-            if (is_array($detailError)) {
-                $detailError = implode('; ', $detailError);
-            }
-            throw new \RuntimeException('OCR error: ' . $detailError);
+            Log::error('OCR processing error', ['details' => $responseData['ErrorMessage'] ?? 'unknown']);
+            throw new \RuntimeException('Gagal memproses dokumen di layanan OCR');
         }
 
-        // Pastikan hasil valid
         if (!isset($responseData['ParsedResults'][0]['ParsedText'])) {
-            throw new \RuntimeException('OCR response invalid');
+            throw new \RuntimeException('Hasil OCR tidak valid');
         }
 
-        // Return text hasil OCR
         return (string) $responseData['ParsedResults'][0]['ParsedText'];
     }
 }
-
-

@@ -4,16 +4,13 @@ namespace App\Services;
 
 class TransactionExtractor
 {
-	// Fungsi utama: ekstrak data terstruktur dari hasil OCR struk
 	public function extract(string $ocrText): array
 	{
-		// Pisahkan baris-baris struk OCR jadi array
 		$lines = preg_split('/\r?\n/', (string) $ocrText);
 		$lines = array_map('trim', $lines);
 		$lines = array_filter($lines, fn($line) => $line !== '');
 		$lines = array_values($lines);
 
-		// Parsing tiap data penting
 		$date = $this->parseDate($lines);
 		$currency = $this->parseCurrency($lines) ?? 'IDR';
 		$vendor = $this->parseVendor($lines);
@@ -23,32 +20,29 @@ class TransactionExtractor
 		$customerInfo = $this->parseCustomerInfo($lines);
 		$paymentMethod = $this->parsePaymentMethod($lines);
 
-		// Return struk data terstruktur dengan field yang jelas
 		return [
-			'tanggal_transaksi' => $date,                         // Format yyyy-mm-dd atau null
-			'nama_toko' => $vendor,                               // Nama toko/vendor
-			'currency' => $currency,                             // Mata uang
-			'total_pembayaran' => $total,                        // Nilai total di struk
-			'daftar_item' => $items,                             // List item transaksi
-			'nomor_resi' => $receiptNumber,                      // Nomor resi/nota/struk
-			'info_pelanggan' => $customerInfo,                   // Array info pelanggan (id/nama/telepon)
-			'cara_pembayaran' => $paymentMethod,                 // Metode pembayaran
-			'struk_mentah' => $lines,                            // Semua baris hasil OCR
+			'tanggal_transaksi' => $date,
+			'nama_toko' => $vendor,
+			'currency' => $currency,
+			'total_pembayaran' => $total,
+			'daftar_item' => $items,
+			'nomor_resi' => $receiptNumber,
+			'info_pelanggan' => $customerInfo,
+			'cara_pembayaran' => $paymentMethod,
+			'struk_mentah' => $lines,
 		];
 	}
 
-	// Cari tanggal di antara baris
 	private function parseDate(array $lines): ?string
 	{
-		// Bisa dd-mm-yyyy, yyyy-mm-dd, dll
 		$patterns = [
-			'/\b(20\d{2})[-\/](\d{1,2})[-\/](\d{1,2})\b/', // yyyy-mm-dd
-			'/\b(\d{1,2})[-\/](\d{1,2})[-\/](20\d{2})\b/', // dd-mm-yyyy
+			'/\b(20\d{2})[-\/](\d{1,2})[-\/](\d{1,2})\b/',
+			'/\b(\d{1,2})[-\/](\d{1,2})[-\/](20\d{2})\b/',
 		];
+
 		foreach ($lines as $line) {
 			foreach ($patterns as $pattern) {
 				if (preg_match($pattern, $line, $m)) {
-					// Penyesuaian urutan year-month-day
 					if (strlen($m[1]) === 4) {
 						$year = $m[1]; $month = $m[2]; $day = $m[3];
 					} else {
@@ -63,7 +57,6 @@ class TransactionExtractor
 		return null;
 	}
 
-	// Deteksi currency/IDR
 	private function parseCurrency(array $lines): ?string
 	{
 		$text = strtoupper(implode(' ', $lines));
@@ -73,14 +66,16 @@ class TransactionExtractor
 		return null;
 	}
 
-	// Nama vendor/toko
 	private function parseVendor(array $lines): ?string
 	{
-		$keywords = ['INVOICE','FAKTUR','RECEIPT','STRUK','TOTAL','SUBTOTAL','TAX','PAJAK','PPN','NO.','NOMOR'];
+		$keywords = ['INVOICE', 'FAKTUR', 'RECEIPT', 'STRUK', 'TOTAL', 'SUBTOTAL', 'TAX', 'PAJAK', 'PPN', 'NO.', 'NOMOR'];
+
 		foreach ($lines as $line) {
 			$cb = strtoupper($line);
 			$adaKeyword = false;
-			foreach ($keywords as $key) if (str_contains($cb, $key)) $adaKeyword = true;
+			foreach ($keywords as $key) {
+				if (str_contains($cb, $key)) $adaKeyword = true;
+			}
 			if ($adaKeyword) continue;
 			if (preg_match('/[\d\$€]|IDR|USD|EUR|RP/i', $line)) continue;
 			if (strlen($line) >= 3 && strlen($line) <= 60) return $line;
@@ -88,29 +83,22 @@ class TransactionExtractor
 		return null;
 	}
 
-	// Deteksi dan normalisasi item belanja
 	private function parseItems(array $lines, string $currency): array
 	{
 		$hasil = [];
-		// Format yang didukung: NamaBarang x2 5000 10000
 		foreach ($lines as $line) {
 			if (preg_match('/^(.*?)\s+(?:x\s*)?(\d{1,4})\s+([\d\.,]+)\s+([\d\.,]+)$/i', $line, $m)) {
-				$namaItem = trim($m[1]);
-				$qty = (int)$m[2];
-				$hargaSatuan = $this->toNumber($m[3]);
-				$total = $this->toNumber($m[4]);
 				$hasil[] = [
-					'nama_item' => $namaItem,
-					'jumlah' => $qty,
-					'harga_satuan' => $hargaSatuan,
-					'subtotal' => $total,
+					'nama_item' => trim($m[1]),
+					'jumlah' => (int)$m[2],
+					'harga_satuan' => $this->toNumber($m[3]),
+					'subtotal' => $this->toNumber($m[4]),
 				];
 			}
 		}
 		return $hasil;
 	}
 
-	// Ambil pola variasi penulisan total pembayaran
 	private function parseTotal(array $lines, string $currency, array $items): ?float
 	{
 		$patterns = [
@@ -124,6 +112,7 @@ class TransactionExtractor
 			'/IDR\s*([\d\.,]+)/i',
 			'/RUPIAH\s*([\d\.,]+)/i',
 		];
+
 		foreach ($lines as $line) {
 			foreach ($patterns as $pat) {
 				if (preg_match($pat, $line, $m)) {
@@ -132,26 +121,40 @@ class TransactionExtractor
 				}
 			}
 		}
-		// Jika tidak dapat pola total, fallback ke sum item
+
 		$jumlahItem = 0.0;
-		foreach ($items as $item) $jumlahItem += (float)($item['subtotal'] ?? 0);
+		foreach ($items as $item) {
+			$jumlahItem += (float)($item['subtotal'] ?? 0);
+		}
 		return $jumlahItem > 0 ? $jumlahItem : null;
 	}
 
-	// Pola konversi string ke angka float
 	private function toNumber(string $nominal): float
 	{
 		$nominal = trim($nominal);
-		if (preg_match('/,\d{2}$/', $nominal) && str_contains($nominal, '.')) {
-			$nominal = str_replace('.', '', $nominal);
+		$nominal = preg_replace('/[^\d,\.]/', '', $nominal);
+		if ($nominal === '') return 0.0;
+
+		if (str_contains($nominal, '.') && str_contains($nominal, ',')) {
+			if (strrpos($nominal, '.') < strrpos($nominal, ',')) {
+				$nominal = str_replace('.', '', $nominal);
+				$nominal = str_replace(',', '.', $nominal);
+			} else {
+				$nominal = str_replace(',', '', $nominal);
+			}
+		} elseif (substr_count($nominal, '.') > 0) {
+			$parts = explode('.', $nominal);
+			$lastPart = end($parts);
+			if (strlen($lastPart) === 3) {
+				$nominal = str_replace('.', '', $nominal);
+			}
+		} elseif (str_contains($nominal, ',')) {
 			$nominal = str_replace(',', '.', $nominal);
-		} else {
-			$nominal = str_replace(',', '', $nominal);
 		}
-		return (float)($nominal === '' ? 0 : $nominal);
+
+		return (float)$nominal;
 	}
 
-	// Nomor resi
 	private function parseReceiptNumber(array $lines): ?string
 	{
 		$pola = [
@@ -161,6 +164,7 @@ class TransactionExtractor
 			'/RESI\s*[:\-]?\s*(\w+)/i',
 			'/STRUK\s*[:\-]?\s*(\w+)/i',
 		];
+
 		foreach ($lines as $baris) {
 			foreach ($pola as $pat) {
 				if (preg_match($pat, $baris, $m)) return trim($m[1]);
@@ -169,7 +173,6 @@ class TransactionExtractor
 		return null;
 	}
 
-	// Info pelanggan (Nama, ID, telepon)
 	private function parseCustomerInfo(array $lines): array
 	{
 		$hasil = [];
@@ -178,22 +181,25 @@ class TransactionExtractor
 			'phone' => '/\b(08\d{8,11})\b/',
 			'name' => '/NAMA\s*[:\-]?\s*([A-Za-z\s]+)/i',
 		];
+
 		foreach ($lines as $baris) {
 			foreach ($pola as $key => $pat) {
-				if (preg_match($pat, $baris, $m)) $hasil[$key] = trim($m[1]);
+				if (preg_match($pat, $baris, $m)) {
+					$hasil[$key] = trim($m[1]);
+				}
 			}
 		}
 		return $hasil;
 	}
 
-	// Metode pembayaran (cash/card/digital)
 	private function parsePaymentMethod(array $lines): ?string
 	{
 		$daftar = ['CASH', 'CARD', 'TRANSFER', 'QRIS', 'DIGITAL', 'E-WALLET'];
 		$text = strtoupper(implode(' ', $lines));
-		foreach ($daftar as $metode) if (str_contains($text, $metode)) return $metode;
+
+		foreach ($daftar as $metode) {
+			if (str_contains($text, $metode)) return $metode;
+		}
 		return null;
 	}
 }
-
-

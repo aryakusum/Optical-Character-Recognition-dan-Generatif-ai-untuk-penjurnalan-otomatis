@@ -22,3 +22,12 @@
 Homestead.json
 Homestead.yaml
 Thumbs.db
+.planning/codebase/TESTING.md
+README.md
+.planning/codebase/ARCHITECTURE.md
+.planning/codebase/CONCERNS.md
+.planning/codebase/CONVENTIONS.md
+.planning/codebase/INTEGRATIONS.md
+.planning/codebase/STACK.md
+.planning/codebase/STRUCTURE.md
+client_secret_*.json
